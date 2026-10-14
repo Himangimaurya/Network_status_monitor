@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: internet-network-status-monitor
+    runtime: python
+    plan: free
+    buildCommand: python --version
+    startCommand: python web_app.py
+    healthCheckPath: /healthz

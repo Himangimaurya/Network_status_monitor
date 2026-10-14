@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>Network Status Monitor</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101827;
+      --panel: #1b2738;
+      --panel-light: #26364b;
+      --text: #edf2f7;
+      --muted: #9aaabd;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #facc15;
+      --blue: #60a5fa;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 30px 24px 48px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: clamp(1.45rem, 3vw, 2rem); letter-spacing: .02em; }
+    .subtitle, .muted { color: var(--muted); }
+    .subtitle { margin: 8px 0 0; font-size: .96rem; }
+    .server-note { max-width: 340px; border: 1px solid #334155; border-radius: 10px; padding: 12px 14px; color: var(--muted); font-size: .83rem; line-height: 1.5; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    button { border: 0; border-radius: 7px; padding: 11px 16px; color: white; background: #2563eb; font-weight: 700; cursor: pointer; }
+    button:hover { filter: brightness(1.12); }
+    button:disabled { opacity: .55; cursor: wait; }
+    button.secondary { background: #374151; }
+    button.monitor { background: #15803d; }
+    button.monitor.active { background: #b45309; }
+    #message { align-self: center; color: var(--muted); font-size: .9rem; }
+    .verdict { background: var(--panel); border-radius: 10px; padding: 17px 20px; margin-bottom: 16px; font-size: 1.5rem; font-weight: 800; }
+    .cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .card, .panel { background: var(--panel); border-radius: 10px; }
+    .card { min-height: 88px; padding: 14px; }
+    .card-label { color: var(--muted); font-size: .75rem; font-weight: 800; letter-spacing: .04em; }
+    .card-value { margin-top: 9px; font-size: 1.25rem; font-weight: 800; overflow-wrap: anywhere; }
+    h2 { margin: 22px 0 10px; font-size: 1rem; letter-spacing: .04em; }
+    .panel { padding: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #314055; }
+    th { background: var(--panel-light); font-size: .86rem; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .pass { color: var(--green); font-weight: 700; }
+    .fail { color: var(--red); font-weight: 700; }
+    .warning { color: var(--yellow); }
+    .last-change { margin: 13px 2px 0; color: var(--muted); font-size: .9rem; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; border-bottom: 1px solid #334155; }
+    .tab-button { background: transparent; border-radius: 7px 7px 0 0; color: var(--muted); }
+    .tab-button.selected { background: var(--panel-light); color: var(--text); }
+    .tab-content { display: none; padding-top: 14px; }
+    .tab-content.selected { display: block; }
+    .info-grid { display: grid; grid-template-columns: minmax(140px, .35fr) 1fr; gap: 0; }
+    .info-grid div { padding: 11px 8px; border-bottom: 1px solid #314055; overflow-wrap: anywhere; }
+    .info-grid div:nth-child(odd) { color: var(--muted); font-weight: 700; }
+    .logs { margin: 0; padding-left: 24px; line-height: 1.9; overflow-wrap: anywhere; }
+    .concepts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .concept { background: var(--panel); padding: 16px; border-radius: 9px; line-height: 1.55; }
+    .concept strong { display: block; margin-bottom: 5px; color: var(--blue); }
+    .empty { color: var(--muted); }
+    @media (max-width: 900px) {
+      .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      header { align-items: flex-start; flex-direction: column; }
+    }
+    @media (max-width: 580px) {
+      .shell { padding: 22px 14px 36px; }
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .panel { padding: 8px; overflow-x: auto; }
+      th, td { padding: 10px 7px; font-size: .84rem; }
+      .concepts { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+      .info-grid div:nth-child(odd) { border-bottom: 0; padding-bottom: 2px; }
+      .info-grid div:nth-child(even) { padding-top: 2px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>NETWORK STATUS MONITOR</h1>
+        <p class="subtitle">Connectivity checks, system information, and live monitoring</p>
+      </div>
+      <div class="server-note">
+        This is a cloud-hosted demo. Network tests and system details describe the
+        hosting server, not the device viewing this page.
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="Monitor controls">
+      <button id="checkButton" type="button">Check Connection</button>
+      <button id="monitorButton" class="monitor" type="button">Start Live Monitoring</button>
+      <button id="infoButton" class="secondary" type="button">Refresh System Info</button>
+      <span id="message" role="status">Loading dashboard…</span>
+    </section>
+
+    <section aria-label="Network status dashboard">
+      <div id="verdict" class="verdict">Waiting for first check</div>
+      <div class="cards">
+        <div class="card"><div class="card-label">TOTAL CHECKS</div><div id="total" class="card-value">0</div></div>
+        <div class="card"><div class="card-label">SUCCESSFUL</div><div id="successful" class="card-value">0</div></div>
+        <div class="card"><div class="card-label">FAILED</div><div id="failed" class="card-value">0</div></div>
+        <div class="card"><div class="card-label">UPTIME</div><div id="uptime" class="card-value">0.0%</div></div>
+        <div class="card"><div class="card-label">AVG TCP LATENCY</div><div id="average" class="card-value">N/A</div></div>
+      </div>
+
+      <h2>CONNECTIVITY CHECKS</h2>
+      <div class="panel">
+        <table>
+          <thead><tr><th>Check</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Local Network</td><td id="local" class="empty">Not checked</td></tr>
+            <tr><td>Internet Reachability</td><td id="internet" class="empty">Not checked</td></tr>
+            <tr><td>DNS Resolution</td><td id="dns" class="empty">Not checked</td></tr>
+            <tr><td>Web Server Response</td><td id="web" class="empty">Not checked</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="lastChange" class="last-change">Last status change: No status change yet</p>
+    </section>
+
+    <nav class="tabs" aria-label="Information sections">
+      <button class="tab-button selected" data-tab="systemTab" type="button">System Information</button>
+      <button class="tab-button" data-tab="logsTab" type="button">Recent Logs</button>
+      <button class="tab-button" data-tab="conceptsTab" type="button">Concepts Guide</button>
+    </nav>
+
+    <section id="systemTab" class="tab-content selected">
+      <div class="panel">
+        <div id="systemInfo" class="info-grid"><div class="empty">System information loads on startup.</div></div>
+      </div>
+    </section>
+    <section id="logsTab" class="tab-content">
+      <div class="panel"><ol id="logs" class="logs"><li class="empty">No checks logged yet.</li></ol></div>
+    </section>
+    <section id="conceptsTab" class="tab-content">
+      <div class="concepts">
+        <div class="concept"><strong>IP address</strong>A number that identifies a device on a network.</div>
+        <div class="concept"><strong>DNS</strong>Finds the IP address associated with a website name.</div>
+        <div class="concept"><strong>TCP</strong>Creates a reliable connection between communicating programs.</div>
+        <div class="concept"><strong>Client-server</strong>A client asks a server for a service or information.</div>
+        <div class="concept"><strong>Request/response</strong>The client sends a request and the server returns a response.</div>
+        <div class="concept"><strong>Latency</strong>The time a network operation takes, measured here in milliseconds.</div>
+        <div class="concept"><strong>Operating system</strong>The OS exposes information such as hostname, network route, and platform.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const message = document.getElementById("message");
+    const checkButton = document.getElementById("checkButton");
+    const monitorButton = document.getElementById("monitorButton");
+    let monitoring = false;
+    let monitoringTimer = null;
+    let checkInProgress = false;
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = value;
+    }
+
+    function formatLatency(value) {
+      return value === null || value === undefined ? "N/A" : `${value.toFixed(1)} ms`;
+    }
+
+    function quality(value) {
+      if (value === null || value === undefined) return "Unavailable";
+      if (value < 50) return "Excellent";
+      if (value < 150) return "Good";
+      if (value < 300) return "Average";
+      return "Poor";
+    }
+
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    }
+
+    function updateStatistics(summary) {
+      setText("total", summary.total);
+      setText("successful", summary.successful);
+      setText("failed", summary.failed);
+      setText("uptime", `${summary.uptime.toFixed(1)}%`);
+      setText("average", formatLatency(summary.average_latency));
+      setText("lastChange", `Last status change: ${summary.last_status_change}`);
+    }
+
+    function renderResult(result) {
+      const checks = [
+        ["local", result.local, result.local.passed
+          ? `PASS — IP: ${result.local.ip}`
+          : `FAIL — ${result.local.detail}`],
+        ["internet", result.internet, result.internet.passed
+          ? `PASS — ${result.internet.target}, ${formatLatency(result.internet.latency_ms)}`
+          : `FAIL — ${result.internet.target}: ${result.internet.detail}`],
+        ["dns", result.dns, result.dns.passed
+          ? `PASS — google.com → ${result.dns.ip}`
+          : `FAIL — ${result.dns.detail}`],
+        ["web", result.web, result.web.passed
+          ? `PASS — HTTP ${result.web.status_code}, ${formatLatency(result.web.latency_ms)}`
+          : `FAIL — ${result.web.detail || "No successful web response"}`]
+      ];
+
+      for (const [id, check, text] of checks) {
+        const cell = document.getElementById(id);
+        cell.textContent = text;
+        cell.className = check.passed ? "pass" : "fail";
+      }
+
+      const verdict = document.getElementById("verdict");
+      verdict.textContent = result.status;
+      verdict.style.color = result.status === "ONLINE"
+        ? "var(--green)"
+        : result.status.includes("ONLY") || result.status.includes("DNS")
+          ? "var(--yellow)"
+          : "var(--red)";
+
+      const tcpLatency = result.internet.latency_ms;
+      setText(
+        "average",
+        tcpLatency === null
+          ? "N/A"
+          : `${formatLatency(tcpLatency)} (${quality(tcpLatency)})`
+      );
+      setText("message", `Last checked at ${result.timestamp}`);
+    }
+
+    async function runCheck() {
+      if (checkInProgress) return;
+      checkInProgress = true;
+      checkButton.disabled = true;
+      message.textContent = "Checking from the cloud server…";
+      try {
+        const data = await requestJson("/api/check", { method: "POST" });
+        renderResult(data.result);
+        updateStatistics(data.summary);
+        if (data.log_error) message.textContent = data.log_error;
+        await loadLogs();
+      } catch (error) {
+        message.textContent = error.message;
+      } finally {
+        checkInProgress = false;
+        checkButton.disabled = false;
+      }
+    }
+
+    async function loadStatistics() {
+      try {
+        const data = await requestJson("/api/status");
+        updateStatistics(data.summary);
+        if (data.result) renderResult(data.result);
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function loadSystemInfo() {
+      message.textContent = "Loading hosting-server information…";
+      try {
+        const data = await requestJson("/api/system-info");
+        const container = document.getElementById("systemInfo");
+        container.replaceChildren();
+        const labels = {
+          hostname: "Hostname",
+          local_ip: "Local IP address",
+          operating_system: "Operating system",
+          architecture: "Architecture",
+          mac_address: "MAC address",
+          python_version: "Python version",
+          current_time: "Server date/time"
+        };
+        for (const [key, label] of Object.entries(labels)) {
+          const name = document.createElement("div");
+          const value = document.createElement("div");
+          name.textContent = label;
+          value.textContent = data.system[key];
+          container.append(name, value);
+        }
+        message.textContent = "Hosting-server information updated";
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function loadLogs() {
+      try {
+        const data = await requestJson("/api/logs");
+        const list = document.getElementById("logs");
+        list.replaceChildren();
+        if (data.error) {
+          const item = document.createElement("li");
+          item.className = "empty";
+          item.textContent = data.error;
+          list.append(item);
+          return;
+        }
+        for (const entry of data.entries) {
+          const item = document.createElement("li");
+          item.textContent = entry;
+          list.append(item);
+        }
+        if (data.entries.length === 0) {
+          const item = document.createElement("li");
+          item.className = "empty";
+          item.textContent = "No checks logged yet.";
+          list.append(item);
+        }
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function toggleMonitoring() {
+      monitoring = !monitoring;
+      monitorButton.textContent = monitoring ? "Stop Live Monitoring" : "Start Live Monitoring";
+      monitorButton.classList.toggle("active", monitoring);
+      if (monitoring) {
+        runCheck();
+        monitoringTimer = window.setInterval(runCheck, 5000);
+        message.textContent = "Live monitoring from cloud server";
+      } else {
+        window.clearInterval(monitoringTimer);
+        monitoringTimer = null;
+        message.textContent = "Live monitoring stopped";
+      }
+    }
+
+    for (const button of document.querySelectorAll(".tab-button")) {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".tab-button").forEach((tab) => tab.classList.remove("selected"));
+        document.querySelectorAll(".tab-content").forEach((tab) => tab.classList.remove("selected"));
+        button.classList.add("selected");
+        document.getElementById(button.dataset.tab).classList.add("selected");
+      });
+    }
+
+    checkButton.addEventListener("click", runCheck);
+    monitorButton.addEventListener("click", toggleMonitoring);
+    document.getElementById("infoButton").addEventListener("click", loadSystemInfo);
+    runCheck();
+    loadSystemInfo();
+    loadLogs();
+  </script>
+</body>
+</html>
